@@ -475,10 +475,7 @@ function getCachedOverview(opts = {}) {
   const whereAnd = conditions.length > 0 ? ' AND ' + conditions.join(' AND ') : '';
 
   const totalChats = db.prepare(`SELECT COUNT(*) as cnt FROM chats${where}`).get(...params).cnt;
-  // When folder-filtered, show only that project's editors; otherwise show all
-  const editors = opts.folder
-    ? db.prepare(`SELECT source, COUNT(*) as count FROM chats${where} GROUP BY source ORDER BY count DESC`).all(...params)
-    : db.prepare('SELECT source, COUNT(*) as count FROM chats GROUP BY source ORDER BY count DESC').all();
+  const editors = db.prepare(`SELECT source, COUNT(*) as count FROM chats${where} GROUP BY source ORDER BY count DESC`).all(...params);
 
   // By mode
   const modes = db.prepare(`SELECT mode, COUNT(*) as count FROM chats WHERE mode IS NOT NULL${whereAnd} GROUP BY mode`).all(...params);

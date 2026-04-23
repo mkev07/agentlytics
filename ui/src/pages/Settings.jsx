@@ -7,7 +7,7 @@ import SectionTitle from '../components/SectionTitle'
 import AnimatedLoader from '../components/AnimatedLoader'
 import PageHeader from '../components/PageHeader'
 
-export default function Settings() {
+export default function Settings({ onConfigChanged }) {
   const [config, setConfig] = useState(null)
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
@@ -37,6 +37,9 @@ export default function Settings() {
       : [...hiddenProjects, folder]
     const newConfig = await updateConfig({ hiddenProjects: updated })
     setConfig(newConfig)
+    const projs = await fetchAllProjects()
+    setProjects(projs)
+    onConfigChanged?.()
     setSaving(false)
   }
 
@@ -54,6 +57,7 @@ export default function Settings() {
     setSaving(true)
     const newConfig = await updateConfig({ allowSubscriptionAccess: !subscriptionAccess })
     setConfig(newConfig)
+    onConfigChanged?.()
     setSaving(false)
     setShowConfirm(false)
   }

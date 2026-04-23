@@ -5,6 +5,13 @@ const os = require('os');
 const cache = require('./cache');
 const { generateShareSvg } = require('./share-image');
 
+let customServer = null;
+try {
+  customServer = require('./custom/server');
+} catch {
+  customServer = null;
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -29,6 +36,14 @@ function getHiddenFolders() {
   return readConfig().hiddenProjects || [];
 }
 
+function shouldExcludeHiddenProjectsFromAnalytics() {
+  return readConfig().excludeHiddenProjectsFromAnalytics !== false;
+}
+
+function getAnalyticsHiddenFolders() {
+  return shouldExcludeHiddenProjectsFromAnalytics() ? getHiddenFolders() : [];
+}
+
 // ============================================================
 // API endpoints — all reads from SQLite cache
 // ============================================================
@@ -51,7 +66,7 @@ app.get('/api/mode', (req, res) => {
 
 app.get('/api/overview', (req, res) => {
   try {
-    const opts = { editor: req.query.editor || null, ...parseDateOpts(req.query), hiddenFolders: getHiddenFolders() };
+    const opts = { editor: req.query.editor || null, ...parseDateOpts(req.query), hiddenFolders: getAnalyticsHiddenFolders() };
     res.json(cache.getCachedOverview(opts));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -60,7 +75,7 @@ app.get('/api/overview', (req, res) => {
 
 app.get('/api/daily-activity', (req, res) => {
   try {
-    const opts = { editor: req.query.editor || null, ...parseDateOpts(req.query), hiddenFolders: getHiddenFolders() };
+    const opts = { editor: req.query.editor || null, ...parseDateOpts(req.query), hiddenFolders: getAnalyticsHiddenFolders() };
     res.json(cache.getCachedDailyActivity(opts));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -76,7 +91,7 @@ app.get('/api/chats', (req, res) => {
       limit: req.query.limit ? parseInt(req.query.limit) : 200,
       offset: req.query.offset ? parseInt(req.query.offset) : 0,
       ...parseDateOpts(req.query),
-      hiddenFolders: getHiddenFolders(),
+      hiddenFolders: getAnalyticsHiddenFolders(),
     };
     const total = cache.countCachedChats(opts);
     const rows = cache.getCachedChats(opts);
@@ -158,7 +173,7 @@ app.get('/api/chats/:id/markdown', (req, res) => {
 
 app.get('/api/projects', (req, res) => {
   try {
-    res.json(cache.getCachedProjects({ ...parseDateOpts(req.query), hiddenFolders: getHiddenFolders() }));
+    res.json(cache.getCachedProjects({ ...parseDateOpts(req.query), hiddenFolders: getAnalyticsHiddenFolders() }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -171,7 +186,7 @@ app.get('/api/deep-analytics', (req, res) => {
       folder: req.query.folder || null,
       limit: Math.min(parseInt(req.query.limit) || 500, 5000),
       ...parseDateOpts(req.query),
-      hiddenFolders: getHiddenFolders(),
+      hiddenFolders: getAnalyticsHiddenFolders(),
     };
     res.json(cache.getCachedDeepAnalytics(opts));
   } catch (err) {
@@ -181,7 +196,7 @@ app.get('/api/deep-analytics', (req, res) => {
 
 app.get('/api/dashboard-stats', (req, res) => {
   try {
-    const opts = { editor: req.query.editor || null, ...parseDateOpts(req.query), hiddenFolders: getHiddenFolders() };
+    const opts = { editor: req.query.editor || null, ...parseDateOpts(req.query), hiddenFolders: getAnalyticsHiddenFolders() };
     res.json(cache.getCachedDashboardStats(opts));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -193,7 +208,7 @@ app.get('/api/cost-analytics', (req, res) => {
     const opts = {
       editor: req.query.editor || null,
       ...parseDateOpts(req.query),
-      hiddenFolders: getHiddenFolders(),
+      hiddenFolders: getAnalyticsHiddenFolders(),
     };
     res.json(cache.getCostAnalytics(opts));
   } catch (err) {
@@ -208,7 +223,7 @@ app.get('/api/costs', (req, res) => {
       folder: req.query.folder || null,
       chatId: req.query.chatId || null,
       ...parseDateOpts(req.query),
-      hiddenFolders: getHiddenFolders(),
+      hiddenFolders: getAnalyticsHiddenFolders(),
     };
     res.json(cache.getCostBreakdown(opts));
   } catch (err) {
@@ -268,7 +283,7 @@ app.get('/api/schema', (req, res) => {
 
 app.get('/api/share-image', (req, res) => {
   try {
-    const filterOpts = { hiddenFolders: getHiddenFolders() };
+    const filterOpts = { hiddenFolders: getAnalyticsHiddenFolders() };
     if (req.query.folder) filterOpts.folder = req.query.folder;
     const overview = cache.getCachedOverview(filterOpts);
     const stats = cache.getCachedDashboardStats(filterOpts);
@@ -328,9 +343,17 @@ app.get('/api/config', (req, res) => {
 
 app.put('/api/config', (req, res) => {
   try {
-    const config = readConfig();
-    Object.assign(config, req.body);
+    const oldConfig = readConfig();
+    const config = { ...oldConfig, ...req.body };
     writeConfig(config);
+
+    if (
+      JSON.stringify(oldConfig.hiddenProjects || []) !== JSON.stringify(config.hiddenProjects || []) ||
+      oldConfig.excludeHiddenProjectsFromAnalytics !== config.excludeHiddenProjectsFromAnalytics
+    ) {
+      _mcpToolsCache = null;
+    }
+
     res.json(config);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -372,7 +395,7 @@ app.get('/api/check-ai', async (req, res) => {
 app.get('/api/artifacts', (req, res) => {
   try {
     const { getAllArtifacts } = require('./editors');
-    const projects = cache.getCachedProjects({ hiddenFolders: getHiddenFolders() });
+    const projects = cache.getCachedProjects({ hiddenFolders: getAnalyticsHiddenFolders() });
     const result = [];
 
     for (const project of projects) {
@@ -412,7 +435,7 @@ app.get('/api/artifact-content', (req, res) => {
 
     // Security: validate file exists in known artifact results for at least one project
     const { getAllArtifacts } = require('./editors');
-    const projects = cache.getCachedProjects({ hiddenFolders: getHiddenFolders() });
+    const projects = cache.getCachedProjects({ hiddenFolders: getAnalyticsHiddenFolders() });
     let allowed = false;
     for (const project of projects) {
       if (!project.folder) continue;
@@ -441,7 +464,7 @@ let _mcpToolsCache = null; // { servers, serverToolResults, toolToServer, server
 async function initMcpToolsCache() {
   const { getAllMCPServers } = require('./editors');
   const { queryMcpServerTools } = require('./editors/base');
-  const projects = cache.getCachedProjects({ hiddenFolders: getHiddenFolders() });
+  const projects = cache.getCachedProjects({ hiddenFolders: getAnalyticsHiddenFolders() });
   const projectFolders = projects.map(p => p.folder).filter(Boolean);
 
   const servers = getAllMCPServers(projectFolders);
@@ -639,7 +662,7 @@ app.get('/api/mcps', async (req, res) => {
       .slice(0, 50);
 
     // 7. Per-project MCP stats
-    const projects = cache.getCachedProjects({ hiddenFolders: getHiddenFolders() });
+    const projects = cache.getCachedProjects({ hiddenFolders: getAnalyticsHiddenFolders() });
     const projectMcpConfigs = [
       { file: '.mcp.json', editor: 'claude-code', label: 'Claude Code' },
       { file: '.cursor/mcp.json', editor: 'cursor', label: 'Cursor' },
@@ -828,6 +851,10 @@ app.get('/api/gsd/file', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+if (customServer && typeof customServer.register === 'function') {
+  customServer.register(app);
+}
 
 // SPA fallback
 app.get('*', (req, res) => {

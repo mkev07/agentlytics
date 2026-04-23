@@ -22,6 +22,7 @@ import MCPs from './pages/MCPs'
 import RelayDashboard from './pages/RelayDashboard'
 import RelayUserDetail from './pages/RelayUserDetail'
 import GSD from './pages/GSD'
+import { customNavItems, customRoutes } from './custom/extensions'
 
 function NavDropdown({ icon: Icon, label, items }) {
   const [open, setOpen] = useState(false)
@@ -158,6 +159,7 @@ export default function App() {
     { to: '/gsd', icon: Target, label: 'GSD' },
     { to: '/mcps', icon: Plug, label: 'MCPs' },
     { to: '/sql', icon: Database, label: 'SQL' },
+    ...customNavItems,
   ]
 
   if (showLogin) {
@@ -287,7 +289,10 @@ export default function App() {
             <Route path="/mcps" element={<MCPs />} />
             <Route path="/sql" element={<SqlViewer />} />
             <Route path="/gsd" element={<GSD />} />
-            <Route path="/settings" element={<Settings />} />
+            {customRoutes.map((route) => (
+              <Route key={route.path} path={route.path} element={<route.Component onConfigChanged={refreshOverview} />} />
+            ))}
+            <Route path="/settings" element={<Settings onConfigChanged={refreshOverview} />} />
           </Routes>
         )}
       </main>
