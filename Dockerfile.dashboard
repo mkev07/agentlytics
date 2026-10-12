@@ -1,0 +1,22 @@
+FROM node:22-slim AS ui-build
+WORKDIR /build
+COPY package.json package-lock.json ./
+COPY ui/package.json ui/package-lock.json ui/
+RUN npm ci && cd ui && npm ci
+COPY index.js cache.js server.js relay-server.js relay-client.js mcp-server.js ./
+COPY editors/ editors/
+COPY ui/ ui/
+RUN cd ui && npm run build
+
+FROM node:22-slim
+WORKDIR /app
+COPY --from=ui-build /build/public ./public
+COPY --from=ui-build /build/node_modules ./node_modules
+COPY --from=ui-build /build/index.js ./index.js
+COPY --from=ui-build /build/cache.js ./cache.js
+COPY --from=ui-build /build/server.js ./server.js
+COPY --from=ui-build /build/relay-server.js ./relay-server.js
+COPY --from=ui-build /build/relay-client.js ./relay-client.js
+COPY --from=ui-build /build/mcp-server.js ./mcp-server.js
+COPY --from=ui-build /build/editors ./editors
+EXPOSE 4637 4638
